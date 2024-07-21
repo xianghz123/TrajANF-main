@@ -14,7 +14,7 @@ def log_to_file(message, log_file='data/train_log/train_frechet_dataset.txt'):
         f.write(message + '\n')
 
 def train_TrajANF(args):
-    log_file = 'data/train_log/train_lam_frechet_dataset.txt'
+    log_file = 'data/train_log/train_frechet_dataset.txt'
 
     # load args
     train_dataset = args.train_dataset
