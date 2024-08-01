@@ -266,10 +266,10 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
-class TrajANF(nn.Module):
+class TrajMORE(nn.Module):
     def __init__(self, vocab_size, emb_size, heads=8, encoder_layers=1, attention_gru_hidden_dim=128, pre_emb=None,
                  t2g=None):
-        super(TrajANF, self).__init__()
+        super(TrajMORE, self).__init__()
         self.lamb = nn.Parameter(torch.FloatTensor(1), requires_grad=True)
         nn.init.constant_(self.lamb, 0.5)
         if pre_emb is not None:
@@ -325,23 +325,26 @@ class TrajANF(nn.Module):
         output = self.lamb * encoder_out + (1 - self.lamb) * context_vector
         return output
 
-
     def calculate_loss_vanilla(self, anchor, anchor_lens, pos, pos_lens, neg, neg_lens,
                                trajs_a, trajs_a_lens, trajs_p, trajs_p_lens, trajs_n, trajs_n_lens,
                                anchor_idxs, pos_idxs, neg_idxs, sim_pos, sim_neg, sim_matrix_a, *args):
         batch_size = anchor.size(0)
         pos_num = pos.shape[0] // batch_size
         device = anchor.device
+
+        # 计算 anchor 和 positive 的余弦相似度
         output_a = self.forward(anchor, trajs_a, trajs_a_lens)
         output_p = self.forward(pos, trajs_p, trajs_p_lens)
-        sim_p = torch.exp(-self.alpha * torch.norm(output_a.repeat(pos_num, 1) - output_p, dim=1)).reshape(batch_size, -1)
-        sim_a = torch.exp(-self.alpha * torch.norm(output_a.unsqueeze(1)-output_a, dim=2)).reshape(batch_size, -1)
-        w_p = torch.softmax(torch.ones(pos_num)/torch.arange(1, pos_num+1).float(), dim=0).to(device)
-        loss_p = torch.sum(w_p * (sim_p - sim_pos)**2, dim=1)
-        loss_n = torch.sum((torch.relu(sim_a - sim_matrix_a))**2, dim=1)
+        sim_p = F.cosine_similarity(output_a.repeat(pos_num, 1), output_p, dim=1).reshape(batch_size, -1)
+
+        # 计算 anchor 和 anchor 之间的余弦相似度
+        sim_a = F.cosine_similarity(output_a.unsqueeze(1), output_a.unsqueeze(0), dim=2).reshape(batch_size, -1)
+
+        w_p = torch.softmax(torch.ones(pos_num) / torch.arange(1, pos_num + 1).float(), dim=0).to(device)
+        loss_p = torch.sum(w_p * (sim_p - sim_pos) ** 2, dim=1)
+        loss_n = torch.sum((torch.relu(sim_a - sim_matrix_a)) ** 2, dim=1)
         loss = (loss_p + loss_n).mean()
         return loss, loss_p.mean(), loss_n.mean()
-
 
     def calculate_loss_vanilla_v2(self, anchor, anchor_lens, pos, pos_lens, neg, neg_lens,
                                   trajs_a, trajs_a_lens, trajs_p, trajs_p_lens, trajs_n, trajs_n_lens,
@@ -350,15 +353,20 @@ class TrajANF(nn.Module):
         pos_num = pos.shape[0] // batch_size
         neg_num = neg.shape[0] // batch_size
         device = anchor.device
+
+        # 计算 anchor 和 positive 的余弦相似度
         output_a = self.forward(anchor, trajs_a, trajs_a_lens)
         output_p = self.forward(pos, trajs_p, trajs_p_lens)
-        sim_p = torch.exp(-self.alpha * torch.norm(output_a.repeat(pos_num, 1) - output_p, dim=1)).reshape(batch_size, -1)
+        sim_p = F.cosine_similarity(output_a.repeat(pos_num, 1), output_p, dim=1).reshape(batch_size, -1)
+
+        # 计算 anchor 和 negative 的余弦相似度
         output_n = self.forward(neg, trajs_n, trajs_n_lens)
-        sim_n = torch.exp(-self.alpha * torch.norm(output_a.repeat(neg_num, 1) - output_n, dim=1)).reshape(batch_size, -1)
-        w_p = torch.softmax(torch.ones(pos_num)/torch.arange(1, pos_num+1).float(), dim=0).to(device)
+        sim_n = F.cosine_similarity(output_a.repeat(neg_num, 1), output_n, dim=1).reshape(batch_size, -1)
+
+        w_p = torch.softmax(torch.ones(pos_num) / torch.arange(1, pos_num + 1).float(), dim=0).to(device)
         w_n = torch.softmax(torch.ones(neg_num).float(), dim=0).to(device)
-        loss_p = torch.sum(w_p * (sim_p - sim_pos)**2, dim=1)
-        loss_n = torch.sum(w_n * (torch.relu(sim_n - sim_neg))**2, dim=1)
+        loss_p = torch.sum(w_p * (sim_p - sim_pos) ** 2, dim=1)
+        loss_n = torch.sum(w_n * (torch.relu(sim_n - sim_neg)) ** 2, dim=1)
         loss = (loss_p + loss_n).mean()
         return loss
 
@@ -404,15 +412,15 @@ class TrajANF(nn.Module):
                 tb_anchor = anchor[:validate_num].to(device)
                 tb_trajs_a = trajs_a[:validate_num].to(device)
                 tb_trajs_a_lens = trajs_a_lens[:validate_num]
-                tb_pos_idxs = pos_idxs[:validate_num*tri_num].reshape(validate_num, tri_num).cpu().numpy()
+                tb_pos_idxs = pos_idxs[:validate_num * tri_num].reshape(validate_num, tri_num).cpu().numpy()
                 output_a = self.forward(tb_anchor, tb_trajs_a, tb_trajs_a_lens)
                 bsz = 300
                 sim_matrixs = []
-                for i in range(len(anchor)//bsz+1):
+                for i in range(len(anchor) // bsz + 1):
                     lb = i * bsz
-                    ub = min((i+1)*bsz, len(anchor))
+                    ub = min((i + 1) * bsz, len(anchor))
                     output_b = self.forward(anchor[lb:ub].to(device), trajs_a[lb:ub].to(device), trajs_a_lens[lb:ub])
-                    s = torch.exp(-torch.norm(output_a.unsqueeze(1) - output_b, dim=-1))
+                    s = F.cosine_similarity(output_a.unsqueeze(1), output_b.unsqueeze(0), dim=-1)
                     sim_matrixs.append(s)
                 sim_matrix = torch.cat(sim_matrixs, dim=1).cpu().numpy()
                 sorted_index = np.argsort(-sim_matrix, axis=1)
@@ -443,3 +451,4 @@ class TrajANF(nn.Module):
         r10_100 = np.mean(ratios10_100)
         self.train()
         return rank, hr_10, hr_20, r10_50, r10_100, pca_x
+
