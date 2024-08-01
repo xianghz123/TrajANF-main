@@ -1,6 +1,6 @@
 import argparse
 from grid2vec import *
-from TrajANF import *
+from TrajMORE import *
 import utils
 import parameters
 
@@ -9,12 +9,12 @@ timer = utils.Timer()
 torch.cuda.empty_cache()
 
 
-def log_to_file(message, log_file='data/train_log/train_frechet_dataset.txt'):
+def log_to_file(message, log_file='data/train_log/train_cosine.txt'):
     with open(log_file, 'a') as f:
         f.write(message + '\n')
 
-def train_TrajANF(args):
-    log_file = 'data/train_log/train_frechet_dataset.txt'
+def train_TrajMORE(args):
+    log_file = 'data/train_log/train_cosine.txt'
 
     # load args
     train_dataset = args.train_dataset
@@ -76,7 +76,7 @@ def train_TrajANF(args):
     pre_emb = None
     if pretrained_embedding_file:
         pre_emb = torch.FloatTensor(np.load(pretrained_embedding_file))
-    model = TrajANF(vocab_size, emb_size, heads, pre_emb=pre_emb, attention_gru_hidden_dim=attention_gru_hidden_dim,
+    model = TrajMORE(vocab_size, emb_size, heads, pre_emb=pre_emb, attention_gru_hidden_dim=attention_gru_hidden_dim,
                     encoder_layers=encoder_layers, t2g=t2g).to(device)
     model.mean_x = dataset.meanx
     model.mean_y = dataset.meany
@@ -210,8 +210,8 @@ def train_TrajANF(args):
     print(log_message)
 
 parser = argparse.ArgumentParser(description="train.py")
-parser.add_argument('--model', '-m', type=str, default='TrajANF', help='model name')
-parser.add_argument('--batch_size', '-b', type=int, default=32)
+parser.add_argument('--model', '-m', type=str, default='TrajMORE', help='model name')
+parser.add_argument('--batch_size', '-b', type=int, default=16)
 parser.add_argument('--cumulative_iters', '-cumu', type=int, default=1)
 parser.add_argument('--epoch_num', '-ep', type=int, default=100)
 parser.add_argument('--learning_rate', '-lr', type=float, default=1e-3)
@@ -246,12 +246,12 @@ args = parser.parse_args()
 
 args_message = str(args)
 print(args_message)
-log_to_file(args_message, 'data/train_log/train_frechet_dataset.txt')
+log_to_file(args_message, 'data/train_log/train_cosine.txt')
 
-if args.model == "TrajANF":
-    train_TrajANF(args)
+if args.model == "TrajMORE":
+    train_TrajMORE(args)
 elif args.model == "grid2vec":
     train_grid2vec(args.grid2idx, args.window_size, args.embedding_size, args.batch_size, args.epoch_num,
                    args.learning_rate, args.checkpoint, args.visdom_port)
 else:
-    raise ValueError("model must be grid2vec or TrajANF")
+    raise ValueError("model must be grid2vec or TrajMORE")
